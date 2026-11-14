@@ -1,0 +1,41 @@
+name: Deploy to production
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Деплои не должны выполняться параллельно: второй ждёт первого
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  DEPLOY_HOST: 45.133.210.22
+  DEPLOY_USER: root
+  DEPLOY_PATH: /opt/community
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Проверить наличие секрета DEPLOY_SSH_KEY
+        run: |
+          if [ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]; then
+            echo "::error::Секрет DEPLOY_SSH_KEY не задан (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
+
+      - name: Подготовить SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Деплой (git fetch + docker compose up + healthz)
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "set -euo pipefail; cd $DEPLOY_PATH && git fetch --prune origin && git reset --hard origin/master && ./deploy/deploy.sh"
