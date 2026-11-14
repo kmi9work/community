@@ -9,6 +9,9 @@ services:
   server:
     image: twentycrm/twenty:${TAG:-v2.58.0}
     stop_grace_period: 120s
+    # На хосте 2 ГБ RAM живут ещё eraofchange, Hermes и telEgo: при нехватке
+    # памяти ядро должно убивать Twenty, а не соседние сервисы.
+    oom_score_adj: 500
     volumes:
       - server-local-data:/app/packages/twenty-server/.local-storage
     ports:
@@ -38,6 +41,7 @@ services:
   worker:
     image: twentycrm/twenty:${TAG:-v2.58.0}
     command: ["yarn", "worker:prod"]
+    oom_score_adj: 500
     volumes:
       - server-local-data:/app/packages/twenty-server/.local-storage
     environment:

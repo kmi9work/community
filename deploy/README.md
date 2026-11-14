@@ -68,10 +68,16 @@ gunzip -c deploy/backups/pre-....sql.gz | docker compose -p community exec -T db
 
 ## Ресурсы сервера
 
-VPS: 1 vCPU, 2 ГБ RAM + 4 ГБ swap, ~13 ГБ диска. Ограничения в compose:
+VPS: 1 vCPU, 2 ГБ RAM + 4 ГБ swap, ~10 ГБ диска. Ограничения в compose:
 `--max-old-space-size=1024` у server, `512` у worker, `shared_buffers=128MB` у
 Postgres. Стек рассчитан на «минимальный» режим Twenty; при росте нагрузки
 (много пользователей, вложения, воркфлоу) нужен сервер от 2 vCPU / 4 ГБ RAM.
+
+На хосте рядом живут eraofchange.ru, Hermes-gateway и telEgo, поэтому контейнерам
+Twenty выставлен `oom_score_adj: 500`: при нехватке памяти ядро убивает Twenty,
+а не соседние сервисы. `deploy/deploy.sh` повторяет `docker compose pull` до трёх
+раз — Docker Hub периодически рвёт большие слои на этом канале.
+
 
 ## Откат
 
