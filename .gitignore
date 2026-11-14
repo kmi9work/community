@@ -1,0 +1,17 @@
+# артефакты сборки и локальные секреты — не коммитим
+node_modules/
+dist/
+.nx/
+.yarn/install-state.gz
+.local-storage/
+logs/
+pgdata/
+
+# секреты и локальные конфиги деплоя
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+CREDENTIALS.txt
+.pgpass
