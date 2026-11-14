@@ -53,13 +53,13 @@ backup_db() {
 
 wait_health() {
   log "Жду готовности http://127.0.0.1:${HOST_PORT}/healthz"
-  for i in $(seq 1 60); do
+  for i in $(seq 1 120); do
     if curl -fsS -m 3 "http://127.0.0.1:${HOST_PORT}/healthz" >/dev/null 2>&1; then
       log "OK: Twenty отвечает на /healthz"
       return 0
     fi
-    if [ "$i" -eq 60 ]; then
-      log "ERROR: Twenty не поднялся за 5 минут"
+    if [ "$i" -eq 120 ]; then
+      log "ERROR: Twenty не поднялся за 10 минут"
       "${COMPOSE[@]}" ps || true
       "${COMPOSE[@]}" logs --tail=80 server || true
       return 1

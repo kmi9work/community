@@ -12,7 +12,7 @@ Twenty v2.58.0 (prebuilt-образ `twentycrm/twenty`) в Docker Compose на �
 1. GitHub Actions подключается к серверу по SSH ключом из секрета `DEPLOY_SSH_KEY`;
 2. на сервере: `git fetch && git reset --hard origin/master` в `/opt/community`;
 3. `deploy/deploy.sh`: бэкап БД → `docker compose pull` → `up -d` → ожидание
-   `/healthz` (до 5 мин) → проверка `https://kmi9site.ru/healthz`.
+   `/healthz` (до 10 мин) → проверка `https://kmi9site.ru/healthz`.
 
 Секреты приложения (пароль Postgres, `ENCRYPTION_KEY`, `APP_SECRET`) генерируются
 на сервере при первом деплое в `deploy/.env` (chmod 600) и в git не попадают.
