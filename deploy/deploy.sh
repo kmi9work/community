@@ -75,7 +75,14 @@ ensure_env
 backup_db
 
 log "docker compose pull (TAG=$(grep -E '^TAG=' .env | cut -d= -f2))"
-"${COMPOSE[@]}" pull
+# Docker Hub CDN периодически отдаёт обрыв на больших слоях (IPv6/PMTU на этом
+# хосте) — скачанные слои кешируются, поэтому повтор снимает проблему.
+for attempt in 1 2 3; do
+  if "${COMPOSE[@]}" pull; then break; fi
+  [ "$attempt" = 3 ] && die "не удалось скачать образ (3 попытки)"
+  log "WARN: pull сорвался (попытка ${attempt}/3), повтор через 10 с"
+  sleep 10
+done
 
 log "docker compose up -d"
 "${COMPOSE[@]}" up -d --remove-orphans
