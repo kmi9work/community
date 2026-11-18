@@ -16,3 +16,4 @@ pgdata/
 CREDENTIALS.txt
 .pgpass
 deploy/backups/
+personal_docs/
