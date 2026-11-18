@@ -57,6 +57,8 @@ export function DataTable({ resource, fixed = {}, hide = [], actions, onCreate, 
   const [loading, setLoading] = useState(false);
   const [views, setViews] = useState<SavedView[]>([]);
   const [showCols, setShowCols] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const filtersRef = useRef<HTMLDivElement>(null);
   const [saveView, setSaveView] = useState(false);
   const [viewName, setViewName] = useState("");
   const [editing, setEditing] = useState<{ id: number; field: string; value: any } | null>(null);
@@ -71,6 +73,20 @@ export function DataTable({ resource, fixed = {}, hide = [], actions, onCreate, 
     api<SavedView[]>("/api/views", { query: { resource } }).then(setViews).catch(() => setViews([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resource]);
+
+  useEffect(() => {
+    if (!showFilters) return;
+    const onDown = (e: MouseEvent) => {
+      if (filtersRef.current && !filtersRef.current.contains(e.target as Node)) setShowFilters(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setShowFilters(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [showFilters]);
 
   const query = useMemo(() => {
     const out: Record<string, string> = { sort, page: String(page), size: String(pageSize) };
@@ -163,15 +179,40 @@ export function DataTable({ resource, fixed = {}, hide = [], actions, onCreate, 
 
   const cols = visibleFields.filter((f) => columns.includes(f.name));
   const filterDefs = meta.filters.filter((f) => !fixedKeys.includes(f.name) && f.type !== "str");
+  const filterValue = (f: FilterMeta) =>
+    f.type === "date_range" ? Boolean(filters[`${f.name}.from`] || filters[`${f.name}.to`]) : Boolean(filters[f.name]);
+  const activeFilters = filterDefs.filter(filterValue).length;
+  const resetFilters = () => {
+    setPage(1);
+    setFilters({});
+    setFilterLabels({});
+  };
   const pages = data ? Math.max(1, Math.ceil(data.total / data.size)) : 1;
 
   return (
     <div className="table-wrap">
       <div className="toolbar">
         {meta.searchable && <input className="search" type="search" placeholder="Поиск" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />}
-        {filterDefs.map((f) => (
-          <FilterControl key={f.name} def={f} value={filters[f.name] || ""} label={filterLabels[f.name]} onChange={(v, lbl) => { setFilter(f.name, v); if (lbl !== undefined) setFilterLabels((l) => ({ ...l, [f.name]: lbl })); }} from={filters[`${f.name}.from`] || ""} to={filters[`${f.name}.to`] || ""} onRange={(k, v) => setFilter(`${f.name}.${k}`, v)} />
-        ))}
+        {filterDefs.length > 0 && (
+          <div className="filters-wrap" ref={filtersRef}>
+            <button className={`ghost filters-btn ${activeFilters ? "on" : ""}`} aria-expanded={showFilters} onClick={() => setShowFilters(!showFilters)}>
+              Фильтры
+              {activeFilters > 0 && <span className="filter-count">{activeFilters}</span>}
+            </button>
+            {showFilters && (
+              <div className="filters-pop">
+                <div className="filters-pop-head">
+                  <strong>Фильтры</strong>
+                  {activeFilters > 0 && <button className="ghost small" onClick={resetFilters}>Сбросить</button>}
+                </div>
+                {filterDefs.map((f) => (
+                  <FilterControl key={f.name} def={f} value={filters[f.name] || ""} label={filterLabels[f.name]} onChange={(v, lbl) => { setFilter(f.name, v); if (lbl !== undefined) setFilterLabels((l) => ({ ...l, [f.name]: lbl })); }} from={filters[`${f.name}.from`] || ""} to={filters[`${f.name}.to`] || ""} onRange={(k, v) => setFilter(`${f.name}.${k}`, v)} />
+                ))}
+                <button className="primary small" onClick={() => setShowFilters(false)}>Готово</button>
+              </div>
+            )}
+          </div>
+        )}
         <div className="spacer" />
         {!fixedKeys.length && (
           <select className="views" value="" onChange={(e) => { const v = views.find((x) => String(x.id) === e.target.value); if (e.target.value === "reset") applyView(null); else if (v) applyView(v); }}>

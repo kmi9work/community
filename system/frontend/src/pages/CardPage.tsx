@@ -129,7 +129,7 @@ function EventMain({ row, setRow, reload }: Ctx) {
             <input type="file" accept="image/jpeg,image/png" hidden onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
           </label>
           {row.poster && <button className="ghost" onClick={() => act(() => api(`/api/events/${row.id}/poster`, { method: "DELETE" }), "Афиша удалена")}>Удалить</button>}
-          <p className="muted small">JPEG или PNG, 1080 × 1350, до 5 МБ</p>
+          <p className="muted small">JPEG или PNG, до 5 МБ, размер любой</p>
         </div>
       </div>
       <FieldForm resource="events" row={row} onSaved={setRow} />

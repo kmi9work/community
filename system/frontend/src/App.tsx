@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, setUnauthorizedHandler, type ResourceMeta, type SavedView } from "./api";
 import { DataTable } from "./components/DataTable";
 import { CreateDialog } from "./components/FieldForm";
@@ -88,6 +88,21 @@ function Login({ onLogin }: { onLogin: (m: Me) => void }) {
 function Layout() {
   const { me, setMe } = useMe();
   const [menu, setMenu] = useState(false);
+  const [unreadAppeals, setUnreadAppeals] = useState(0);
+  const location = useLocation();
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      api<{ appeals_unread: number }>("/api/counters")
+        .then((c) => alive && setUnreadAppeals(c.appeals_unread || 0))
+        .catch(() => {});
+    load();
+    const timer = setInterval(load, 30000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [location.pathname]);
   const logout = async () => {
     await api("/api/auth/logout", { method: "POST" }).catch(() => {});
     setMe(null);
@@ -100,7 +115,14 @@ function Layout() {
       </header>
       <nav className="sidebar" onClick={() => setMenu(false)}>
         <div className="brand desktop">CRM сообщества</div>
-        {MAIN.map(([r, t]) => <NavLink key={r} to={`/r/${r}`}>{t}</NavLink>)}
+        {MAIN.map(([r, t]) => (
+          <NavLink key={r} to={`/r/${r}`}>
+            {t}
+            {r === "appeals" && unreadAppeals > 0 && (
+              <span className="nav-badge" title="Необработанные обращения">{unreadAppeals}</span>
+            )}
+          </NavLink>
+        ))}
         <div className="nav-group">Справочники</div>
         {DICTS.map(([r, t]) => <NavLink key={r} to={`/r/${r}`}>{t}</NavLink>)}
         <div className="nav-group">Ещё</div>

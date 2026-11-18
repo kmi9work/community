@@ -73,9 +73,38 @@ def date_range(name="created_at", label="Период"):
 
 
 def _levels(session, p: Participant) -> list[str]:
-    rows = session.scalars(select(Level.name).join(Interest, Interest.level_id == Level.id)
-                           .where(Interest.participant_id == p.id).distinct())
-    return list(rows)
+    """Уровни: выбранные в интересах и уровни типов, на которые участник подписан.
+
+    Новый участник подписан на типы уровня new («Игры», «Лекции»), поэтому уровень
+    виден сразу — так же, как его считает отбор получателей рассылки «по уровням».
+    """
+    ids = set(session.scalars(select(Interest.level_id).where(Interest.participant_id == p.id)))
+    ids |= set(session.scalars(
+        select(EventType.level_id)
+        .join(Subscription, Subscription.event_type_id == EventType.id)
+        .where(Subscription.participant_id == p.id, Subscription.subscribed.is_(True))
+    ))
+    if not ids:
+        return []
+    return list(session.scalars(select(Level.name).where(Level.id.in_(ids)).order_by(Level.order)))
+
+
+def _subscriptions(session, p: Participant) -> list[str]:
+    return list(session.scalars(
+        select(EventType.name)
+        .join(Subscription, Subscription.event_type_id == EventType.id)
+        .where(Subscription.participant_id == p.id, Subscription.subscribed.is_(True))
+        .order_by(EventType.order, EventType.id)
+    ))
+
+
+def _activities(session, p: Participant) -> list[str]:
+    return list(session.scalars(
+        select(ActivityType.name)
+        .join(Interest, Interest.activity_type_id == ActivityType.id)
+        .where(Interest.participant_id == p.id)
+        .order_by(ActivityType.order, ActivityType.id)
+    ))
 
 
 def _participations_count(session, p: Participant) -> int:
@@ -92,7 +121,14 @@ def _filter_messenger(q, raw):
 
 
 def _filter_level(q, raw):
-    return q.where(Participant.id.in_(select(Interest.participant_id).where(Interest.level_id == int(raw))))
+    level_id = int(raw)
+    by_interest = select(Interest.participant_id).where(Interest.level_id == level_id)
+    by_subscription = (
+        select(Subscription.participant_id)
+        .join(EventType, EventType.id == Subscription.event_type_id)
+        .where(EventType.level_id == level_id, Subscription.subscribed.is_(True))
+    )
+    return q.where(or_(Participant.id.in_(by_interest), Participant.id.in_(by_subscription)))
 
 
 def _filter_type(q, raw):
@@ -113,7 +149,9 @@ register(Resource(
         F("telegram_id", "Идентификатор в Телеграм", editable=False, list=False),
         F("max_id", "Идентификатор в MAX", editable=False, list=False),
         F("status", "Статус", "enum", PARTICIPANT_STATUS, editable=False),
+        F("subscriptions", "Подписки", "computed", getter=_subscriptions, list=False),
         F("levels", "Уровни", "computed", getter=_levels),
+        F("activities", "Типы деятельности", "computed", getter=_activities, list=False),
         F("participations_count", "Записей", "computed", getter=_participations_count),
         F("consent", "Согласие на обработку ПД", "bool", editable=False, list=False),
         F("surveys_declined_all", "Отказ от всех опросов", "bool", list=False),

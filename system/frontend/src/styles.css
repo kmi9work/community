@@ -72,6 +72,10 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
 .sidebar a { padding: 7px 12px; border-radius: var(--radius); color: var(--text); }
 .sidebar a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .sidebar a:hover { text-decoration: none; background: var(--bg); }
+.nav-badge {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-inline-start: 8px;
+  padding: 0 5px; border-radius: 99px; background: var(--danger); color: #fff; font-size: 11px; line-height: 1;
+}
 .brand { font-weight: 700; padding: 4px 12px 12px; color: var(--text); }
 .nav-group { margin: 14px 12px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 .nav-foot { margin-top: auto; padding: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -96,6 +100,27 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
 .filter { max-width: 220px; }
 .filter.range { display: inline-flex; align-items: center; gap: 4px; max-width: none; }
 .filter.range input { width: 140px; }
+.filters-wrap { position: relative; }
+.filters-btn { display: inline-flex; align-items: center; gap: 6px; }
+.filters-btn.on { border-color: var(--accent); color: var(--accent); }
+.filter-count {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px;
+  padding: 0 5px; border-radius: 99px; background: var(--accent); color: #fff; font-size: 11px; line-height: 1;
+}
+.filters-pop {
+  position: absolute; inset-inline-start: 0; top: calc(100% + 6px); z-index: 20; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px;
+  display: flex; flex-direction: column; gap: 8px; min-width: 260px; width: min(340px, calc(100vw - 32px));
+  max-height: min(70vh, 520px); overflow: auto;
+}
+.filters-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.filters-pop .filter, .filters-pop .filter.range { max-width: none; width: 100%; }
+.filters-pop select, .filters-pop input { width: 100%; }
+.filters-pop .filter.range input { width: calc(50% - 14px); }
+@media (max-width: 800px) {
+  /* ниже 800 px — панель снизу экрана, иначе не помещается по ширине */
+  .filters-pop { position: fixed; inset-inline: 8px; top: auto; bottom: 8px; width: auto; max-height: 60vh; }
+}
 .cols-wrap { position: relative; }
 .cols-pop {
   position: absolute; right: 0; top: 100%; z-index: 15; background: var(--panel); border: 1px solid var(--line);

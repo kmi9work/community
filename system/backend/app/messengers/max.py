@@ -2,16 +2,33 @@
 from __future__ import annotations
 
 import re
+import ssl
 import time
 from pathlib import Path
 from typing import Optional
 
+import certifi
 import httpx
 
 from .base import MENU_ITEMS, Button, Incoming, OutMessage, SendError, SendResult
 
 TEXT_LIMIT = 4000
 MENU_CODES = ("menu:events", "menu:about", "menu:me", "menu:org")
+
+# platform-api2.max.ru отдаёт сертификат, выпущенный Russian Trusted Sub CA
+# (Минцифры). Его корневого сертификата нет ни в certifi, ни в системном хранилище
+# python:3.12-slim, поэтому без этого файла ЛЮБОЙ запрос к MAX падает с ошибкой TLS:
+# не регистрируется webhook, не уходят сообщения, бот молчит. Файл — официальный
+# Russian Trusted Root CA с https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt.
+CA_BUNDLE = Path(__file__).with_name("russian_trusted_root_ca.crt")
+
+
+def _verify_context() -> ssl.SSLContext:
+    """Доверять обычным центрам (certifi) и Минцифры (файл рядом с адаптером)."""
+    ctx = ssl.create_default_context(cafile=certifi.where())
+    if CA_BUNDLE.is_file():
+        ctx.load_verify_locations(cafile=str(CA_BUNDLE))
+    return ctx
 
 
 def _vcf_phone(vcf: str) -> str:
@@ -31,7 +48,8 @@ class MaxAdapter:
         self.token = token
         self.base = api.rstrip("/")
         self.client = client or httpx.Client(timeout=httpx.Timeout(20, connect=10),
-                                             headers={"Authorization": token})
+                                             headers={"Authorization": token},
+                                             verify=_verify_context())
 
     def call(self, method: str, path: str, params: dict | None = None, json_body: dict | None = None) -> dict:
         try:

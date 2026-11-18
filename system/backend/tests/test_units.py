@@ -75,3 +75,17 @@ def test_real_templates_have_expected_keys():
         assert len(real[f.stem]) >= len(fixture_blocks), f.stem
         for fb, rb in zip(fixture_blocks, real[f.stem]):
             assert set(VAR_RE.findall(fb)) == set(VAR_RE.findall(rb)), f.stem
+
+
+def test_max_trusts_russian_root_ca():
+    """Без сертификата Минцифры platform-api2.max.ru недоступен: бот молчит."""
+    import ssl
+
+    import certifi
+
+    from app.messengers.max import CA_BUNDLE, _verify_context
+
+    assert CA_BUNDLE.is_file(), "нет russian_trusted_root_ca.crt рядом с адаптером MAX"
+    assert "BEGIN CERTIFICATE" in CA_BUNDLE.read_text(encoding="ascii")
+    base = ssl.create_default_context(cafile=certifi.where()).cert_store_stats()["x509_ca"]
+    assert _verify_context().cert_store_stats()["x509_ca"] == base + 1

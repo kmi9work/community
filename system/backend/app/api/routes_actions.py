@@ -38,7 +38,6 @@ from .deps import current_admin, get_db
 
 router = APIRouter(prefix="/api")
 
-POSTER_SIZE = (1080, 1350)
 POSTER_MAX_BYTES = 5 * 1024 * 1024
 
 
@@ -144,14 +143,11 @@ async def upload_poster(event_id: int, file: UploadFile = File(...), admin: Admi
     try:
         img = Image.open(io.BytesIO(data))
         fmt = img.format
-        size = img.size
         img.verify()
     except (UnidentifiedImageError, OSError):
         raise crud.ValidationFailed("Это не картинка JPEG или PNG", "poster")
     if fmt not in ("JPEG", "PNG"):
         raise crud.ValidationFailed("Формат — JPEG или PNG", "poster")
-    if size != POSTER_SIZE:
-        raise crud.ValidationFailed(f"Размер — 1080 × 1350 пикселей, у файла {size[0]} × {size[1]}", "poster")
     ext = "jpg" if fmt == "JPEG" else "png"
     name = f"{event.event_type.identifier}-{event.date:%Y-%m-%d}-{event.id}.{ext}"
     folder = settings.media_dir / "posters"

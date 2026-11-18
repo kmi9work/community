@@ -53,14 +53,21 @@ def test_event_lifecycle(admin, tg):
     # identifier не меняется
     t = admin.patch(f"/api/r/event_types/{game['id']}", json={"identifier": "zzz"}, headers=H)
     assert t.status_code == 422
-    # афиша: неверный размер
+    # афиша: размер любой, формат — только JPEG/PNG
+    buf = io.BytesIO()
+    Image.new("RGB", (100, 100)).save(buf, "GIF")
+    r = admin.post(f"/api/events/{ev['id']}/poster", files={"file": ("a.gif", buf.getvalue(), "image/gif")},
+                   headers=H)
+    assert r.status_code == 422 and "JPEG" in r.json()["detail"]["message"]
     buf = io.BytesIO()
     Image.new("RGB", (100, 100)).save(buf, "JPEG")
-    r = admin.post(f"/api/events/{ev['id']}/poster", files={"file": ("a.jpg", buf.getvalue(), "image/jpeg")}, headers=H)
-    assert r.status_code == 422 and "1080" in r.json()["detail"]["message"]
+    r = admin.post(f"/api/events/{ev['id']}/poster", files={"file": ("a.jpg", buf.getvalue(), "image/jpeg")},
+                   headers=H)
+    assert r.status_code == 200
     buf = io.BytesIO()
     Image.new("RGB", (1080, 1350)).save(buf, "JPEG")
-    r = admin.post(f"/api/events/{ev['id']}/poster", files={"file": ("a.jpg", buf.getvalue(), "image/jpeg")}, headers=H)
+    r = admin.post(f"/api/events/{ev['id']}/poster", files={"file": ("a.jpg", buf.getvalue(), "image/jpeg")},
+                   headers=H)
     assert r.status_code == 200
     assert admin.get(r.json()["poster"]).status_code == 200
     # запись участника, затем дату меняет только перенос
@@ -126,8 +133,10 @@ def test_appeals_and_search(admin, tg):
     u.text("Вопрос про игру")
     items = admin.get("/api/r/appeals", params={"f.processed": "false"}).json()["items"]
     assert len(items) == 1 and items[0]["text"] == "Вопрос про игру"
+    assert admin.get("/api/counters").json()["appeals_unread"] == 1
     admin.patch(f"/api/r/appeals/{items[0]['id']}", json={"processed": True, "comment": "ответили"}, headers=H)
     assert admin.get("/api/r/appeals", params={"f.processed": "false"}).json()["total"] == 0
+    assert admin.get("/api/counters").json()["appeals_unread"] == 0
     found = admin.get("/api/r/participants", params={"q": "79001234567"}).json()
     assert found["total"] == 1
 
@@ -154,3 +163,14 @@ def test_webhook_secret(client, monkeypatch):
     assert client.post("/webhook/telegram", json={"update_id": 1}).status_code == 403
     r = client.post("/webhook/telegram", json={"update_id": 1}, headers={"X-Telegram-Bot-Api-Secret-Token": "s3"})
     assert r.status_code == 200
+
+
+def test_participant_columns_subscriptions_levels(admin, tg):
+    """Новый участник подписан на «Игры» и «Лекции» уровня new — видно в колонках."""
+    User(tg, "1001").register()
+    row = admin.get("/api/r/participants").json()["items"][0]
+    assert row["subscriptions"] == ["Игры", "Лекции"]
+    assert row["levels"] == ["Посещение мероприятий"]
+    assert row["activities"] == []
+    new = [lv for lv in admin.get("/api/r/levels/options").json() if lv["label"] == "Посещение мероприятий"][0]
+    assert admin.get("/api/r/participants", params={"f.level": new["id"]}).json()["total"] == 1

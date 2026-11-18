@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import logs
 from ..auth import hash_password, limiter, verify_password
-from ..models import Admin, SavedView
+from ..models import Admin, Appeal, SavedView
 from ..util import audit, now_utc
 from . import crud
 from . import resources  # noqa: F401 — регистрация разделов
@@ -88,6 +88,13 @@ def update_me(body: ProfileIn, request: Request, admin: Admin = Depends(current_
 @router.get("/meta")
 def meta(admin: Admin = Depends(current_admin)):
     return {"resources": {name: res.meta() for name, res in crud.REGISTRY.items()}}
+
+
+@router.get("/counters")
+def counters(admin: Admin = Depends(current_admin), session: Session = Depends(get_db)):
+    """Счётчики для навигации админки."""
+    unread = session.scalar(select(func.count(Appeal.id)).where(Appeal.processed.is_(False))) or 0
+    return {"appeals_unread": unread}
 
 
 # --- представления ------------------------------------------------------------------------
