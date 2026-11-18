@@ -13,6 +13,7 @@ from ..models import (
     DELIVERY_STATUS,
     EVENT_STATUS,
     PARTICIPANT_STATUS,
+    PARTICIPATION_ACTIVE,
     PARTICIPATION_STATUS,
     QUESTIONNAIRE_PURPOSE,
     RECIPIENT_MODE,
@@ -44,6 +45,7 @@ from ..models import (
     SurveyRun,
 )
 from ..auth import hash_password
+from ..services import events as esvc
 from ..util import audit, now_utc, today_local
 from .crud import F, Filter, Resource, ValidationFailed, register, search_ilike
 
@@ -108,8 +110,8 @@ def _activities(session, p: Participant) -> list[str]:
 
 
 def _participations_count(session, p: Participant) -> int:
-    return session.scalar(select(func.count(Participation.id)).where(Participation.participant_id == p.id,
-                                                                     Participation.status == "registered")) or 0
+    return session.scalar(select(func.count(Participation.id)).where(
+        Participation.participant_id == p.id, Participation.status.in_(PARTICIPATION_ACTIVE))) or 0
 
 
 def _filter_messenger(q, raw):
@@ -175,9 +177,13 @@ register(Resource(
 
 
 def _registered(session, e: Event) -> str:
-    n = session.scalar(select(func.count(Participation.id)).where(Participation.event_id == e.id,
-                                                                  Participation.status == "registered")) or 0
-    return f"{n} / {e.seats_limit}" if e.seats_limit else str(n)
+    """«Записанные»: подтверждённые и, отдельной припиской, ждущие подтверждения."""
+    confirmed = session.scalar(select(func.count(Participation.id)).where(
+        Participation.event_id == e.id, Participation.status == "registered")) or 0
+    pending = session.scalar(select(func.count(Participation.id)).where(
+        Participation.event_id == e.id, Participation.status == "pending")) or 0
+    total = f"{confirmed} / {e.seats_limit}" if e.seats_limit else str(confirmed)
+    return f"{total} (+{pending} ждут)" if pending else total
 
 
 def _announced(session, e: Event) -> bool:
@@ -211,8 +217,8 @@ def _event_before_save(session, event: Event, data: dict, admin, creating: bool)
         return
     changing = {k for k in ("date", "time", "address") if k in data and data[k] != getattr(event, k)}
     if changing:
-        n = session.scalar(select(func.count(Participation.id)).where(Participation.event_id == event.id,
-                                                                      Participation.status == "registered"))
+        n = session.scalar(select(func.count(Participation.id)).where(
+            Participation.event_id == event.id, Participation.status.in_(PARTICIPATION_ACTIVE)))
         if n:
             raise ValidationFailed("На мероприятие уже записались — дату, время и адрес меняет кнопка «Перенести»",
                                    sorted(changing)[0])
@@ -280,7 +286,26 @@ def _participation_before(session, part: Participation, data, admin, creating):
         if dup:
             raise ValidationFailed("Участник уже есть в списке мероприятия", "participant")
         part.registered_at = now_utc()
+        # админ добавляет участника уже согласованным — заявка не ждёт подтверждения
         part.status = data.get("status") or "registered"
+        part.decided_at = now_utc() if part.status == "registered" else None
+        return
+    # прежний статус нужен после сохранения, чтобы понять, что это решение организатора
+    setattr(part, "previous_status", part.status)
+
+
+def _participation_after(session, part: Participation, data, admin, creating):
+    audit(session, actor(admin), "participation_saved", part, fields=sorted(data))
+    previous = getattr(part, "previous_status", None)
+    if creating or previous is None or previous == part.status:
+        return
+    # решение организатора: участнику уходит сообщение через очередь рассылки
+    if part.status == "registered":
+        esvc.confirm(session, part, actor(admin))
+    elif part.status == "declined":
+        esvc.decline(session, part, actor(admin))
+    elif part.status == "pending":
+        part.decided_at = None  # вернули в ожидание — решения ещё нет
 
 
 register(Resource(
@@ -295,6 +320,7 @@ register(Resource(
           create=False),
         F("attendance", "Присутствие", "enum", ATTENDANCE, create=False),
         F("registered_at", "Дата записи", "datetime", editable=False, create=False),
+        F("decided_at", "Подтверждено или отклонено", "datetime", editable=False, create=False, list=False),
         F("starred", "Ответы на вопросы со звёздочкой", "computed", getter=_starred_answers),
     ],
     search=via_participant(Participation),
@@ -305,7 +331,7 @@ register(Resource(
         Filter("attendance", "Присутствие", "enum", ATTENDANCE),
     ],
     before_save=_participation_before,
-    after_save=lambda s, o, d, a, c: audit(s, actor(a), "participation_saved", o, fields=sorted(d)),
+    after_save=_participation_after,
 ))
 
 

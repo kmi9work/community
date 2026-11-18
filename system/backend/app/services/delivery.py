@@ -157,7 +157,8 @@ def schedule_reminders(session: Session) -> int:
         if now < start - hours(reminder.hours_before):
             continue
         bsvc.create_system_broadcast(session, event, "reminder", f"Напоминание: {event.title}",
-                                     {"hours_before": reminder.hours_before}, reminder_id=reminder.id)
+                                     {"hours_before": reminder.hours_before}, reminder_id=reminder.id,
+                                     recipient_mode="event_confirmed")
         reminder.sent_at = now
         session.flush()
         created += 1

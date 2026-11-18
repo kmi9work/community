@@ -1,4 +1,4 @@
-# 24-event-registered (тестовый шаблон)
+# 24-event-pending (тестовый шаблон)
 
 ```text
 [24.0]

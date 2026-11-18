@@ -167,8 +167,14 @@ function EventParticipants({ row }: Ctx) {
     }
   };
   return (
-    <Sub resource="participations" fixed={{ event: String(row.id) }} create={{ event: row.id }} reloadKey={key}
-      actions={<><button className="ghost" onClick={() => bulk("came")}>Отметить всех пришедшими</button><button className="ghost" onClick={() => bulk(null)}>Снять отметки</button></>} />
+    <>
+      <p className="muted small">
+        Заявка ждёт решения, пока «Статус записи» не станет «записан» (участнику уйдёт сообщение о подтверждении) или «заявка отклонена»
+        (уйдёт сообщение об отказе). Напоминания и «Список для мастера» — только для записанных.
+      </p>
+      <Sub resource="participations" fixed={{ event: String(row.id) }} create={{ event: row.id }} reloadKey={key}
+        actions={<><button className="ghost" onClick={() => bulk("came")}>Отметить всех пришедшими</button><button className="ghost" onClick={() => bulk(null)}>Снять отметки</button></>} />
+    </>
   );
 }
 
@@ -256,6 +262,7 @@ const KIND_FIELDS: Record<string, string[]> = {
   survey: ["questionnaire"],
   reminder: ["event"],
   event_change: ["event"],
+  participation: ["event"],
   text: [],
 };
 const MODE_FIELDS: Record<string, string> = { event_types: "event_types", levels: "levels", selected: "participants" };

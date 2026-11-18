@@ -1,4 +1,4 @@
-"""Мероприятия: предстоящие, запись, перенос, отмена, проведение."""
+"""Мероприятия: предстоящие, заявки и их подтверждение, перенос, отмена, проведение."""
 from __future__ import annotations
 
 from datetime import date, time
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import logs
 from ..models import (
+    PARTICIPATION_ACTIVE,
     UPCOMING_STATUSES,
     Broadcast,
     Event,
@@ -41,16 +42,30 @@ def is_open(event: Event) -> bool:
     return event.status in UPCOMING_STATUSES and event.date >= today_local()
 
 
-def registered_count(session: Session, event_id: int) -> int:
+def _count(session: Session, event_id: int, statuses: tuple[str, ...]) -> int:
     return session.scalar(
         select(func.count(Participation.id)).where(
-            Participation.event_id == event_id, Participation.status == "registered"
+            Participation.event_id == event_id, Participation.status.in_(statuses)
         )
     ) or 0
 
 
+def confirmed_count(session: Session, event_id: int) -> int:
+    """Записи, подтверждённые организатором (кто придёт)."""
+    return _count(session, event_id, ("registered",))
+
+
+def pending_count(session: Session, event_id: int) -> int:
+    return _count(session, event_id, ("pending",))
+
+
+def occupied_seats(session: Session, event_id: int) -> int:
+    """Занятые места: заявки в силе, включая ждущие подтверждения."""
+    return _count(session, event_id, PARTICIPATION_ACTIVE)
+
+
 def is_full(session: Session, event: Event) -> bool:
-    return bool(event.seats_limit) and registered_count(session, event.id) >= (event.seats_limit or 0)
+    return bool(event.seats_limit) and occupied_seats(session, event.id) >= (event.seats_limit or 0)
 
 
 def participation(session: Session, participant_id: int, event_id: int) -> Optional[Participation]:
@@ -60,19 +75,61 @@ def participation(session: Session, participant_id: int, event_id: int) -> Optio
 
 
 def register_participant(session: Session, participant: Participant, event: Event, actor: str) -> Participation:
-    """Создать запись «записан» (или вернуть отменённую)."""
+    """Создать заявку «ждёт подтверждения» (или вернуть отменённую в работу)."""
     part = participation(session, participant.id, event.id)
     if part is None:
-        part = Participation(participant_id=participant.id, event_id=event.id, status="registered",
+        part = Participation(participant_id=participant.id, event_id=event.id, status="pending",
                              registered_at=now_utc())
         session.add(part)
     else:
-        part.status = "registered"
+        part.status = "pending"
         part.registered_at = now_utc()
+    part.decided_at = None
     session.flush()
     audit(session, actor, "participation_registered", part, event_id=event.id)
     logs.event("event.registered", participant_id=participant.id, event_id=event.id)
     return part
+
+
+def _notify(session: Session, part: Participation, variant: str) -> Optional[Broadcast]:
+    """Сообщение участнику о решении по заявке — через очередь системной рассылки."""
+    from .broadcasts import create_system_broadcast
+
+    event = part.event
+    if event.status not in UPCOMING_STATUSES:
+        return None
+    subject = ("Участие подтверждено: " if variant == "confirmed" else "Заявка отклонена: ") + event.title
+    return create_system_broadcast(session, event, "participation", subject,
+                                   {"variant": variant, "participation_id": part.id},
+                                   participants=[part.participant])
+
+
+def confirm(session: Session, part: Participation, actor: str) -> Optional[Broadcast]:
+    """Организатор подтвердил заявку: статус «записан» и сообщение участнику."""
+    part.status = "registered"
+    part.decided_at = now_utc()
+    session.flush()
+    audit(session, actor, "participation_confirmed", part, event_id=part.event_id)
+    logs.event("event.participation_confirmed", participant_id=part.participant_id, event_id=part.event_id)
+    return _notify(session, part, "confirmed")
+
+
+def decline(session: Session, part: Participation, actor: str) -> Optional[Broadcast]:
+    """Организатор отклонил заявку: статус «заявка отклонена» и сообщение участнику."""
+    part.status = "declined"
+    part.decided_at = now_utc()
+    session.flush()
+    audit(session, actor, "participation_declined", part, event_id=part.event_id)
+    logs.event("event.participation_declined", participant_id=part.participant_id, event_id=part.event_id)
+    return _notify(session, part, "declined")
+
+
+def cancel_by_participant(session: Session, part: Participation, actor: str) -> None:
+    """Участник отменил запись сам: место освобождается, сообщений не шлём."""
+    part.status = "cancelled"
+    session.flush()
+    audit(session, actor, "participation_cancelled", part, event_id=part.event_id)
+    logs.event("event.participation_cancelled", participant_id=part.participant_id, event_id=part.event_id)
 
 
 def _cancel_pending_reminders(session: Session, event: Event, reason: str) -> None:

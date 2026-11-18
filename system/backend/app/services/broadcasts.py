@@ -18,6 +18,7 @@ from ..bot.render import (
 )
 from ..messengers.base import Button, OutMessage
 from ..models import (
+    PARTICIPATION_ACTIVE,
     Admin,
     Broadcast,
     Delivery,
@@ -82,6 +83,11 @@ def select_recipients(session: Session, b: Broadcast) -> list[Participant]:
         if not b.event_id:
             return []
         q = q.where(Participant.id.in_(select(Participation.participant_id).where(
+            Participation.event_id == b.event_id, Participation.status.in_(PARTICIPATION_ACTIVE))))
+    elif mode == "event_confirmed":
+        if not b.event_id:
+            return []
+        q = q.where(Participant.id.in_(select(Participation.participant_id).where(
             Participation.event_id == b.event_id, Participation.status == "registered")))
     elif mode != "all":
         raise BroadcastError("Неизвестный способ выбора получателей")
@@ -94,7 +100,7 @@ def select_recipients(session: Session, b: Broadcast) -> list[Participant]:
 
 
 def validate(b: Broadcast) -> None:
-    if b.kind in ("announcement", "reminder", "event_change") and not b.event_id:
+    if b.kind in ("announcement", "reminder", "event_change", "participation") and not b.event_id:
         raise BroadcastError("Выберите мероприятие")
     if b.kind == "survey" and not b.questionnaire_id:
         raise BroadcastError("Выберите опросник")
@@ -150,6 +156,21 @@ def render_messages(session: Session, b: Broadcast, channel: str) -> list[OutMes
     if b.kind == "text":
         body = f"<b>{_esc(b.subject)}</b>\n\n{sanitize_html(b.text)}"
         return _with_buttons(split_long(body, limit), [], "text")
+    if b.kind == "participation":
+        event = b.event
+        if event is None:
+            raise BroadcastError("Мероприятие рассылки не найдено")
+        payload = b.payload or {}
+        part = session.get(Participation, payload["participation_id"]) if payload.get("participation_id") else None
+        values = event_values(event)
+        values["event_role"] = (part.role.name if part is not None and part.role else "")
+        if payload.get("variant") == "declined":
+            text = render("83", values)
+            return _with_buttons(split_long(text, limit), [[btn_org()], [btn_events()]],
+                                 "83-event-participation-declined")
+        text = render("82", values)
+        return _with_buttons(split_long(text, limit), [[btn_org()], [btn_me()]],
+                             "82-event-participation-confirmed")
     raise BroadcastError("Неизвестный вид рассылки")
 
 
@@ -240,9 +261,15 @@ def launch_test(session: Session, b: Broadcast, admin: Admin) -> Broadcast:
 
 
 def create_system_broadcast(session: Session, event: Event, kind: str, subject: str, payload: dict,
-                            reminder_id: Optional[int] = None) -> Broadcast:
+                            reminder_id: Optional[int] = None,
+                            participants: Optional[list[Participant]] = None,
+                            recipient_mode: str = "event_registered") -> Broadcast:
+    """Системная рассылка. Получатели — заявки в силе на мероприятие, либо заданный список."""
+    recipients = list(participants or [])
     b = Broadcast(kind=kind, subject=subject, event_id=event.id, reminder_id=reminder_id, author_id=None,
-                  recipient_mode="event_registered", payload=payload, status="draft")
+                  recipient_mode="selected" if recipients else recipient_mode, payload=payload, status="draft")
+    if recipients:
+        b.participants = recipients
     session.add(b)
     session.flush()
     session.refresh(b)

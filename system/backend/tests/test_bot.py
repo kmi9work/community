@@ -200,9 +200,9 @@ def test_join_with_form(user, tg):
     user.press(f"g:{qid}")
     assert "n=4" in tg.last().text
     user.text("Новых знакомых")
-    assert tg.last().key == "24-event-registered"
+    assert tg.last().key == "24-event-pending"
     [part] = q(Participation)
-    assert part.status == "registered" and part.event_id == event_id
+    assert part.status == "pending" and part.event_id == event_id
     [run] = q(SurveyRun)
     assert run.status == "completed" and run.event_id == event_id
     answers = q(Answer)
@@ -217,7 +217,7 @@ def test_second_join_asks_only_starred(user, tg):
     user.press(f"ev:join:{e2}")
     assert "m=2" in tg.last().text  # только вопросы со звёздочкой
     user.press(f"ev:join:{e1}")
-    assert tg.last().key == "25-event-already-registered"
+    assert tg.last().key == "25-event-already" and "[25.1]" in tg.last().text
 
 
 def _complete_form(user, tg, event_id):
@@ -239,7 +239,41 @@ def test_lecture_has_no_questions(user, tg):
     user.register()
     event_id = make_event("lecture")
     user.press(f"ev:join:{event_id}")
-    assert tg.last().key == "24-event-registered"
+    assert tg.last().key == "24-event-pending"
+
+
+def test_cancel_own_participation(user, tg):
+    """«Мои записи» → «Отменить: (название)»: вопрос, отмена, возможность записаться снова."""
+    user.register()
+    event_id = make_event("lecture")
+    user.press(f"ev:join:{event_id}")
+    user.press("me:events")
+    assert "ждёт подтверждения" in tg.last().text
+    [cancel] = [b for b in user.buttons() if b.startswith("ev:cancel_ask:")]
+    user.press(cancel)
+    assert tg.last().key == "69-event-cancel"
+    [part] = q(Participation)
+    [confirm] = [b for b in user.buttons() if b.startswith("ev:cancel:")]
+    user.press(confirm)
+    assert tg.last().key == "69-event-cancelled"
+    with db.session_scope() as s:
+        stored = s.get(Participation, part.id)
+        assert stored is not None and stored.status == "cancelled"
+    user.press(f"ev:join:{event_id}")
+    assert tg.last().key == "24-event-pending"
+
+
+def test_declined_participation_blocks_rejoin(user, tg):
+    user.register()
+    event_id = make_event("lecture")
+    user.press(f"ev:join:{event_id}")
+    with db.session_scope() as s:
+        stored = s.scalar(select(Participation))
+        assert stored is not None
+        stored.status = "declined"
+    user.press(f"ev:join:{event_id}")
+    assert tg.last().key == "25-event-declined"
+    assert len(q(Participation)) == 1
 
 
 def test_seats_limit(user, tg):

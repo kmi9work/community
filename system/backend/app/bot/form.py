@@ -16,7 +16,16 @@ from sqlalchemy import select
 
 from .. import logs
 from ..messengers.base import Button, OutMessage
-from ..models import Answer, AnswerOption, Event, Question, Questionnaire, SurveyRefusal, SurveyRun
+from ..models import (
+    PARTICIPATION_ACTIVE,
+    Answer,
+    AnswerOption,
+    Event,
+    Question,
+    Questionnaire,
+    SurveyRefusal,
+    SurveyRun,
+)
 from ..services import events as esvc
 from ..services import forms as fsvc
 from ..texts import render
@@ -273,9 +282,14 @@ def complete_registration(ctx: Ctx, event: Event) -> None:
                             key="32-event-closed"))
         return
     part = esvc.participation(ctx.session, ctx.participant.id, event.id)
-    if part is not None and part.status == "registered":
-        ctx.send(OutMessage(render("25", {"event_title": event.title}), buttons=[[btn_org()], [btn_me()]],
-                            key="25-event-already-registered"))
+    if part is not None and part.status in PARTICIPATION_ACTIVE:
+        variant = 1 if part.status == "pending" else 0
+        ctx.send(OutMessage(render("25", {"event_title": event.title}, variant=variant),
+                            buttons=[[btn_org()], [btn_me()]], key="25-event-already"))
+        return
+    if part is not None and part.status == "declined":
+        ctx.send(OutMessage(render("25", {"event_title": event.title}, variant=2),
+                            buttons=[[btn_org()], [btn_me()]], key="25-event-declined"))
         return
     if esvc.is_full(ctx.session, event):
         ctx.send(OutMessage(render("31", {"event_title": event.title}), buttons=[[btn_org()], [btn_events()]],
@@ -283,7 +297,7 @@ def complete_registration(ctx: Ctx, event: Event) -> None:
         return
     esvc.register_participant(ctx.session, ctx.participant, event, f"participant:{ctx.participant.id}")
     ctx.send(OutMessage(render("24", event_values(event)), buttons=[[btn_me(), btn_events()]],
-                        key="24-event-registered"))
+                        key="24-event-pending"))
 
 
 def decline(ctx: Ctx, run: SurveyRun) -> None:

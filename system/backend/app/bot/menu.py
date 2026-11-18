@@ -9,6 +9,8 @@ from .. import logs
 from ..messengers.base import MENU_ABOUT, MENU_EVENTS, MENU_ME, MENU_ORG, Button, OutMessage
 from ..models import (
     CHANNELS,
+    PARTICIPATION_ACTIVE,
+    UPCOMING_STATUSES,
     Appeal,
     Broadcast,
     Delivery,
@@ -193,6 +195,10 @@ def on_callback(ctx: Ctx, code: str) -> None:
             list_events(ctx, arg)
         elif code.startswith("ev:join:"):
             join(ctx, int(arg))
+        elif code.startswith("ev:cancel_ask:"):
+            cancel_ask(ctx, int(arg))
+        elif code.startswith("ev:cancel:"):
+            cancel_own(ctx, int(arg))
         elif code.startswith("ev:unsub:"):
             unsubscribe(ctx, int(arg))
         elif code.startswith("sub:toggle:"):
@@ -253,9 +259,15 @@ def join(ctx: Ctx, event_id: int) -> None:
                             key="32-event-closed"))
         return
     part = esvc.participation(ctx.session, ctx.participant.id, event.id)
-    if part is not None and part.status == "registered":
-        ctx.send(OutMessage(render("25", {"event_title": event.title}), buttons=[[btn_org()], [btn_me()]],
-                            key="25-event-already-registered"))
+    if part is not None and part.status in PARTICIPATION_ACTIVE:
+        # 0 — запись уже подтверждена, 1 — заявка ждёт подтверждения
+        variant = 1 if part.status == "pending" else 0
+        ctx.send(OutMessage(render("25", {"event_title": event.title}, variant=variant),
+                            buttons=[[btn_org()], [btn_me()]], key="25-event-already"))
+        return
+    if part is not None and part.status == "declined":
+        ctx.send(OutMessage(render("25", {"event_title": event.title}, variant=2),
+                            buttons=[[btn_org()], [btn_me()]], key="25-event-declined"))
         return
     if esvc.is_full(ctx.session, event):
         ctx.send(OutMessage(render("31", {"event_title": event.title}), buttons=[[btn_org()], [btn_events()]],
@@ -572,18 +584,65 @@ def my_events(ctx: Ctx) -> None:
     ).all())
     if not parts:
         text = render("64", {"events_list": "Вы пока никуда не записаны. Посмотреть предстоящие мероприятия можно кнопкой ниже."})
-    else:
-        lines = []
-        for part, event in parts:
-            when = ", ".join(x for x in (fmt_date(event.date), fmt_time(event.time), event.address) if x)
-            line = f"{event.title} — {when}"
-            if part.status == "cancelled":
-                line += " (отменил запись)"
-            if event.status == "cancelled":
-                line += " (мероприятие отменено)"
-            lines.append(line)
-        text = render("64", {"events_list": "\n".join(lines)})
-    ctx.show(OutMessage(text, buttons=[[btn_events(), Button("Назад", "me:data")]], key="64-my-events"))
+        ctx.show(OutMessage(text, buttons=[[btn_events(), Button("Назад", "me:data")]], key="64-my-events"))
+        return
+    lines = []
+    buttons: list[list[Button]] = []
+    cancellable = sum(1 for part, event in parts
+                      if part.status in PARTICIPATION_ACTIVE and event.status in UPCOMING_STATUSES)
+    numbered = len(parts) > 1
+    for i, (part, event) in enumerate(parts, 1):
+        when = ", ".join(x for x in (fmt_date(event.date), fmt_time(event.time), event.address) if x)
+        line = f"{i}. {event.title} — {when}" if numbered else f"{event.title} — {when}"
+        if part.status == "pending":
+            line += " (ждёт подтверждения)"
+        elif part.status == "cancelled":
+            line += " (отменил запись)"
+        elif part.status == "declined":
+            line += " (заявка отклонена)"
+        if event.status == "cancelled":
+            line += " (мероприятие отменено)"
+        lines.append(line)
+        if part.status in PARTICIPATION_ACTIVE and event.status in UPCOMING_STATUSES:
+            label = "Отменить запись" if cancellable == 1 else f"Отменить запись {i}"
+            buttons.append([Button(label, f"ev:cancel_ask:{part.id}")])
+    buttons.append([btn_events(), Button("Назад", "me:data")])
+    ctx.show(OutMessage(render("64", {"events_list": "\n".join(lines)}), buttons=buttons, key="64-my-events"))
+
+
+def _own_participation(ctx: Ctx, participation_id: int) -> Participation | None:
+    part = ctx.session.get(Participation, participation_id)
+    if part is None or part.participant_id != ctx.participant.id:
+        ctx.notice("Запись не найдена")
+        return None
+    if part.status not in PARTICIPATION_ACTIVE:
+        ctx.notice("Запись уже отменена")
+        my_events(ctx)
+        return None
+    return part
+
+
+def cancel_ask(ctx: Ctx, participation_id: int) -> None:
+    """Отмена записи из «Мои записи»: сначала спрашиваем подтверждение."""
+    part = _own_participation(ctx, participation_id)
+    if part is None:
+        return
+    ctx.notice()
+    ctx.send(OutMessage(render("69", {"event_title": part.event.title}),
+                        buttons=[[Button("Да, отменить", f"ev:cancel:{part.id}")],
+                                 [Button("Оставить запись", "me:events")]],
+                        key="69-event-cancel"))
+
+
+def cancel_own(ctx: Ctx, participation_id: int) -> None:
+    part = _own_participation(ctx, participation_id)
+    if part is None:
+        return
+    ctx.notice()
+    title = part.event.title
+    esvc.cancel_by_participant(ctx.session, part, f"participant:{ctx.participant.id}")
+    ctx.send(OutMessage(render("69", {"event_title": title}, variant=1),
+                        buttons=[[btn_events()], [btn_me()]], key="69-event-cancelled"))
 
 
 def pending_surveys(ctx: Ctx) -> list[tuple[Questionnaire, SurveyRun | None]]:

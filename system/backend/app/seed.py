@@ -45,6 +45,7 @@ SYSTEM_VIEWS = [
     ("events", "Предстоящие игры", {"filters": {"when": "upcoming", "event_type__identifier": "game"}, "sort": "date"}),
     ("deliveries", "Ошибки доставки", {"filters": {"status": "error"}, "sort": "-id"}),
     ("runs", "Брошенные прохождения", {"filters": {"status": "started"}, "sort": "started_at"}),
+    ("participations", "Ждут подтверждения", {"filters": {"status": "pending"}, "sort": "registered_at"}),
     ("participations", "Отменили запись", {"filters": {"status": "cancelled"}, "sort": "-registered_at"}),
     ("subscriptions", "Отписались", {"filters": {"subscribed": "false"}, "sort": "-changed_at"}),
     ("appeals", "Необработанные обращения", {"filters": {"processed": "false"}, "sort": "-created_at"}),

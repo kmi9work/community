@@ -4,8 +4,8 @@ from sqlalchemy import select
 
 from app import db
 from app.messengers.base import SendError
-from app.models import Admin, Broadcast, Delivery, Event, Level, Participant, Participation, Questionnaire, Question, \
-    AnswerOption, Reminder
+from app.models import Admin, Broadcast, Delivery, Event, GameRole, Level, Participant, Participation, \
+    Questionnaire, Question, AnswerOption, Reminder
 from app.services import broadcasts as bsvc
 from app.services import delivery
 from app.services import events as esvc
@@ -177,10 +177,16 @@ def test_reminders_and_move(user, tg):
         s.add(Reminder(event_id=event_id, hours_before=24, is_active=True))
         s.add(Reminder(event_id=event_id, hours_before=1, is_active=True))
     with db.session_scope() as s:
+        # подтверждение организатором — без него напоминаний не будет
+        part = s.scalar(select(Participation))
+        assert part is not None
+        esvc.confirm(s, part, "admin:1")
+    with db.session_scope() as s:
         assert delivery.schedule_reminders(s) == 1  # за 24 часа уже наступило, за 1 час — ещё нет
         assert delivery.schedule_reminders(s) == 0
     run_worker()
     assert tg.last().key == "70-reminder"
+    assert "82-event-participation-confirmed" in tg.keys()
     with db.session_scope() as s:
         event = s.get(Event, event_id)
         esvc.move(s, event, new_date=event.date + timedelta(days=7), new_time=time(18, 0), new_address="Тверь",
@@ -209,6 +215,40 @@ def test_cancelled_participant_gets_no_reminder(tg):
         part.status = "cancelled"
         b = bsvc.create_system_broadcast(s, s.get(Event, event_id), "reminder", "Напоминание", {})
         assert b.recipients_count == 0 and b.status == "finished"
+
+
+def test_pending_participant_gets_no_reminder(tg):
+    """Напоминание — только подтверждённым: заявка, ждущая решения, его не получает."""
+    a = User(tg, "1", "Анна", "А")
+    a.register("+79000000001")
+    event_id = make_event("lecture", days=1)
+    a.press(f"ev:join:{event_id}")
+    with db.session_scope() as s:
+        b = bsvc.create_system_broadcast(s, s.get(Event, event_id), "reminder", "Напоминание", {},
+                                         recipient_mode="event_confirmed")
+        assert b.recipients_count == 0 and b.status == "finished"
+
+
+def test_participation_decision_messages(user, tg):
+    """Подтверждение и отказ по заявке — сообщения участнику через очередь."""
+    user.register()
+    event_id = make_event("lecture")
+    user.press(f"ev:join:{event_id}")
+    with db.session_scope() as s:
+        part = s.scalar(select(Participation))
+        role = s.scalar(select(GameRole).where(GameRole.kind == "participant"))
+        assert part is not None and role is not None
+        part.role = role
+        esvc.confirm(s, part, "admin:1")
+    run_worker()
+    assert tg.last().key == "82-event-participation-confirmed"
+    assert "event_role=" in tg.last().text  # роль на игре попадает в сообщение
+    with db.session_scope() as s:
+        part = s.scalar(select(Participation))
+        assert part is not None and part.status == "registered" and part.decided_at
+        esvc.decline(s, part, "admin:1")
+    run_worker()
+    assert tg.last().key == "83-event-participation-declined"
 
 
 def test_test_broadcast_goes_to_author(user, tg):

@@ -3,7 +3,10 @@ import io
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
+from sqlalchemy import select
 
+from app import db
+from app.models import Broadcast
 from tests.conftest import User
 from tests.test_bot import make_event, q
 
@@ -88,6 +91,18 @@ def test_event_lifecycle(admin, tg):
     r = admin.post(f"/api/events/{ev['id']}/move", json={"date": "2099-01-11", "time": "19:00", "address": "Тверь",
                                                          "reason": "площадка"}, headers=H)
     assert r.status_code == 200 and r.json()["recipients"] == 1
+    # заявка ждёт подтверждения: в списке для мастера её ещё нет
+    page = admin.get(f"/api/events/{ev['id']}/master-list")
+    assert page.status_code == 200 and "Иван Петров" not in page.text
+    parts = admin.get("/api/r/participations", params={"f.event": ev["id"]}).json()["items"]
+    assert len(parts) == 1 and parts[0]["status"] == "pending"
+    # согласование в CRM — участнику уходит сообщение
+    r = admin.patch(f"/api/r/participations/{parts[0]['id']}", json={"status": "registered"}, headers=H)
+    assert r.status_code == 200 and r.json()["status"] == "registered" and r.json()["decided_at"]
+    with db.session_scope() as s:
+        bc = s.scalar(select(Broadcast).where(Broadcast.kind == "participation"))
+        assert bc is not None and bc.payload["variant"] == "confirmed"
+        assert bc.recipients_count == 1
     page = admin.get(f"/api/events/{ev['id']}/master-list")
     assert page.status_code == 200 and "Иван Петров" in page.text and "+79001234567" in page.text
     parts = admin.get("/api/r/participations", params={"f.event": ev["id"]}).json()["items"]

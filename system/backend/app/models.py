@@ -46,7 +46,16 @@ EVENT_STATUS = {
     "completed": "проведено",
 }
 UPCOMING_STATUSES = ("planned", "moved")
-PARTICIPATION_STATUS = {"registered": "записан", "cancelled": "отменил запись"}
+# Заявка проходит подтверждение организаторами: pending → registered | declined.
+# cancelled — участник (или администратор по его просьбе) отменил запись.
+PARTICIPATION_STATUS = {
+    "pending": "ждёт подтверждения",
+    "registered": "записан",
+    "declined": "заявка отклонена",
+    "cancelled": "отменил запись",
+}
+# Заявка в силе: место на мероприятии занято, сообщения о переносе и отмене приходят.
+PARTICIPATION_ACTIVE = ("pending", "registered")
 ATTENDANCE = {"came": "Пришёл", "absent": "Не пришёл"}
 ROLE_KIND = {"participant": "участник", "organizer": "организатор"}
 QUESTIONNAIRE_PURPOSE = {"registration": "анкета записи на мероприятие", "survey": "опрос"}
@@ -57,6 +66,7 @@ BROADCAST_KIND = {
     "survey": "опрос",
     "reminder": "напоминание",
     "event_change": "изменение мероприятия",
+    "participation": "подтверждение или отказ заявки",
     "text": "текст",
 }
 BROADCAST_STATUS = {
@@ -72,6 +82,7 @@ RECIPIENT_MODE = {
     "levels": "по уровням",
     "selected": "выбранные участники",
     "event_registered": "записанные на мероприятие",
+    "event_confirmed": "подтверждённые на мероприятие",
 }
 DELIVERY_STATUS = {"queued": "в очереди", "sent": "отправлено", "error": "ошибка"}
 
@@ -338,9 +349,11 @@ class Participation(Base):
     participant_id: Mapped[int] = mapped_column(ForeignKey("participants.id", ondelete="CASCADE"), index=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
     role_id: Mapped[Optional[int]] = mapped_column(ForeignKey("game_roles.id", ondelete="SET NULL"))
-    status: Mapped[str] = mapped_column(String(16), default="registered")
+    status: Mapped[str] = mapped_column(String(16), default="pending")
     attendance: Mapped[Optional[str]] = mapped_column(String(16))
     registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Подтверждение или отказ организатора
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     participant: Mapped[Participant] = relationship(back_populates="participations")
     event: Mapped[Event] = relationship(back_populates="participations")
