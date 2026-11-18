@@ -1,0 +1,73 @@
+name: community-system
+
+# Система сообщества для kmi9site.ru: api (админка + webhook ботов), worker
+# (рассылки и напоминания), PostgreSQL. Наружу ничего не публикуется: api слушает
+# 127.0.0.1:HOST_PORT, фронт отдаёт nginx (deploy/nginx/community.kmi9site.ru.conf).
+# Лимиты памяти — под VPS 2 ГБ, где живут и другие сервисы.
+
+x-app: &app
+  image: community-system:latest
+  pull_policy: never
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+psycopg://crm:${PG_PASSWORD}@db:5432/crm
+  volumes:
+    - media:/data/media
+    - ../../personal_docs:/personal_docs:ro
+  oom_score_adj: 300
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+  restart: always
+
+services:
+  api:
+    <<: *app
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${HOST_PORT:-3100}:8000"
+    mem_limit: 450m
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.worker"]
+    mem_limit: 200m
+    stop_grace_period: 30s
+    depends_on:
+      api:
+        condition: service_healthy
+
+  db:
+    image: postgres:16.4-alpine
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=40"]
+    environment:
+      POSTGRES_DB: crm
+      POSTGRES_USER: crm
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crm -d crm"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    restart: always
+
+volumes:
+  pgdata:
+  media:

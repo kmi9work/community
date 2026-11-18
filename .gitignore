@@ -16,4 +16,11 @@ pgdata/
 CREDENTIALS.txt
 .pgpass
 deploy/backups/
-personal_docs/
+/personal_docs/
+# система (system/)
+__pycache__/
+.pytest_cache/
+.venv/
+system/backend/media/
+system/backend/*.db
+system/deploy/backups/
